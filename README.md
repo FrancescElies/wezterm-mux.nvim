@@ -11,18 +11,15 @@ If the movement is performed across neovim windows these functions work as the u
 ![Wezterm+Nvim](https://github.com/jonboh/wezterm-mux.nvim/blob/media/wezterm_mux_nvim.gif?raw=true)
 
 ## Installation
-Packer:
+
+### With Packer:
 ```lua
 use {"jonboh/wezterm-mux.nvim"}
 ```
 
-I've only tested it with Packer, but given that this plugin is quite small
-and doesn't have configuration I think it should work on any other plugin
-manager. Let me know if it does not.
-
-## NeoVim Config
 At some point in your NeoVim config you'll need to bind the keys you use to navigate between windows
 to the functions of this plugin
+
 ```lua
 local mux = require("wezterm-mux")
 vim.keymap.set("n", "<C-h>", mux.wezterm_move_left)
@@ -32,6 +29,26 @@ vim.keymap.set("n", "<C-k>", mux.wezterm_move_up)
 vim.keymap.set("n", "<A-x>", "<C-w>q") -- some actions dont need from a specific function
 ```
 
+### With Lazy:
+```lua
+  {
+    'jonboh/wezterm-mux.nvim',
+    config = function()
+      local mux = require 'wezterm-mux'
+      vim.keymap.set('n', '<C-h>', mux.wezterm_move_left)
+      vim.keymap.set('n', '<C-l>', mux.wezterm_move_right)
+      vim.keymap.set('n', '<C-j>', mux.wezterm_move_down)
+      vim.keymap.set('n', '<C-k>', mux.wezterm_move_up)
+      vim.keymap.set('n', '<A-x>', '<C-w>q') -- some actions dont need from a specific function
+    end,
+  },
+```
+
+
+Given that this plugin is quite small and doesn't have configuration 
+it should work on any other plugin manager. Let me know if it does not.
+
+
 ## Wezterm Config
 You should add this configuration snippet some place in your `wezterm/wezterm.lua`.
 
@@ -40,42 +57,58 @@ local wezterm = require("wezterm")
 local act = require("wezterm").action
 local mux = require("wezterm").mux
 
-local nvim = "/usr/bin/nvim" -- change this to the location of you nvim
+local mod_pane_move = 'CTRL'
 
+local platform = {
+  is_win = string.find(wezterm.target_triple, 'windows') ~= nil,
+  is_linux = string.find(wezterm.target_triple, 'linux') ~= nil,
+  is_mac = string.find(wezterm.target_triple, 'apple') ~= nil,
+}
 
-local wez_nvim_action = function(window, pane, action_wez, forward_key_nvim)
-    local current_process = mux.get_window(window:window_id()):active_pane():get_foreground_process_name()
-    if current_process==nvim then
-        window:perform_action(forward_key_nvim, pane)
-    else
-        window:perform_action(action_wez, pane)
-    end
+local function is_nvim(window)
+  local current_process = mux.get_window(window:window_id()):active_pane():get_foreground_process_name()
+  wezterm.log_info(current_process)
+  if platform.is_win then
+    return string.find(current_process, 'nvim')
+  else
+    local nvim = '/usr/bin/nvim' -- change this to the location of you nvim
+    return current_process == nvim
+  end
 end
 
-wezterm.on("move-left", function(window, pane)
-	wez_nvim_action(window, pane, 
-    act.ActivatePaneDirection "Left", -- this will execute when the active pane is not a nvim instance
-    act.SendKey({key="h", mods="CTRL"}) -- this key combination will be forwarded to nvim if the active pane is a nvim instance
-    )
+local wez_nvim_action = function(window, pane, action_wez, forward_key_nvim)
+  if is_nvim(window) then
+    window:perform_action(forward_key_nvim, pane)
+  else
+    window:perform_action(action_wez, pane)
+  end
+end
+
+wezterm.on('move-left', function(window, pane)
+  wez_nvim_action(
+    window,
+    pane,
+    act.ActivatePaneDirection 'Left', -- this will execute when the active pane is not a nvim instance
+    act.SendKey { key = 'h', mods = mod_pane_move } -- this key combination will be forwarded to nvim if the active pane is a nvim instance
+  )
 end)
 
-wezterm.on("move-right", function(window, pane)
-	wez_nvim_action(window, pane, 
-    act.ActivatePaneDirection "Right", 
-    act.SendKey({key="l", mods="CTRL"}))
-
+wezterm.on('move-right', function(window, pane)
+  wez_nvim_action(window, pane, act.ActivatePaneDirection 'Right', act.SendKey { key = 'l', mods = mod_pane_move })
 end)
 
-wezterm.on("move-down", function(window, pane)
-	wez_nvim_action(window, pane, 
-    act.ActivatePaneDirection "Down",
-    act.SendKey({key="j", mods="CTRL"}))
+wezterm.on('move-down', function(window, pane)
+  wez_nvim_action(window, pane, act.ActivatePaneDirection 'Down', act.SendKey { key = 'j', mods = mod_pane_move })
 end)
 
-wezterm.on("move-up", function(window, pane)
-	wez_nvim_action(window, pane, 
-    act.ActivatePaneDirection "Up", 
-    act.SendKey({key="k", mods="CTRL"}))
+wezterm.on('move-up', function(window, pane)
+  wez_nvim_action(window, pane, act.ActivatePaneDirection 'Up', act.SendKey { key = 'k', mods = mod_pane_move })
+end)
+
+-- you can add other actions, this unifies the way in which panes and windows are closed
+-- (you'll need to bind <A-x> -> <C-w>q)
+wezterm.on('close-pane', function(window, pane)
+  wez_nvim_action(window, pane, act.CloseCurrentPane { confirm = false }, act.SendKey { key = 'x', mods = 'ALT' })
 end)
 
 -- you can add other actions, this unifies the way in which panes and windows are closed 
@@ -96,11 +129,11 @@ config = {
             -- your other key bindings
 
             -- pane move(nvim aware)
-            { key = 'h',  mods = 'CTRL', action = wezterm.action({ EmitEvent = "move-left" }) },
-            { key = 'l', mods = 'CTRL', action = wezterm.action({ EmitEvent = "move-right" }) },
-            { key = 'j',  mods = 'CTRL', action = wezterm.action({ EmitEvent = "move-down" }) },
-            { key = 'k',    mods = 'CTRL', action = wezterm.action({ EmitEvent = "move-up" }) },
-            { key = 'x', mods = 'ALT', action = wezterm.action({EmitEvent="close-pane"})},
+            { key = 'h', mods = mod_pane_move, action = act { EmitEvent = 'move-left' } },
+            { key = 'l', mods = mod_pane_move, action = act { EmitEvent = 'move-right' } },
+            { key = 'j', mods = mod_pane_move, action = act { EmitEvent = 'move-down' } },
+            { key = 'k', mods = mod_pane_move, action = act { EmitEvent = 'move-up' } },
+            { key = 'x', mods = 'ALT', action = act { EmitEvent = 'close-pane' } },
         }
     }
 }
